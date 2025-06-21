@@ -1,0 +1,37 @@
+defaults:
+  - override /trainer_cfg@_global_: base_sft
+  - override /model_cfg@_global_: qwen7bi
+  - override /data_cfg@_global_: teacher_bespoke_stratos
+  - _self_
+
+bf16: true
+num_train_epochs: 10
+
+save_strategy: epoch
+save_steps: 1
+do_eval: false
+
+eval_strategy: steps
+eval_steps: 100
+
+train_batch_size: 96
+per_device_train_batch_size: 1
+gradient_accumulation_steps: ???
+
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+lr_scheduler_type: cosine
+
+learning_rate: 1.0e-05
+logging_steps: 1
+logging_strategy: steps
+
+packing: false
+max_seq_length: 16384
+per_device_eval_batch_size: 4
+
+wandb_project: rl4lm_sft
+wandb_group_name: teacher_sft
+wandb_run_name: teacher_${trainer_log_name}_${max_seq_length}ctx
+output_dir: ${results_dir}/pre_rl_model
