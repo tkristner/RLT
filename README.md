@@ -7,7 +7,7 @@
 <p align="center">
   📚 <a href="https://arxiv.org/abs/2506.08388">[Paper]</a> |
   🤗 <a href="https://huggingface.co/collections/SakanaAI/reinforcement-learning-teachers-6853ed251c99aa3da2228ada">[Checkpoints]</a>
-  🐠 <a href="https://sakana.ai/blog/rlt">[Blog]</a>
+  🐠 <a href="https://sakana.ai/rlt">[Blog]</a>
 </p>
 
 
