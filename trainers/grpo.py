@@ -58,8 +58,18 @@ if is_vllm_available():
 if is_wandb_available():
     import wandb
 
-from .custom_ray import RayGeneratorActor
-from .custom_ray.vllm_engine import get_resource_info, print_ram_utilization
+# Ray imports - disabled for mono-GPU version
+# from .custom_ray import RayGeneratorActor
+# from .custom_ray.vllm_engine import get_resource_info, print_ram_utilization
+
+# Fallback implementations for mono-GPU
+def get_resource_info():
+    """Fallback resource info for mono-GPU"""
+    return {"GPU": {"memory": "N/A"}, "CPU": {"memory": "N/A"}}
+
+def print_ram_utilization():
+    """Fallback RAM utilization for mono-GPU"""
+    print("Resource monitoring disabled in mono-GPU mode")
 from .vllm_client import VLLMClient
 
 
@@ -463,41 +473,10 @@ class GRPOTrainer(Trainer):
                         repetition_penalty=args.repetition_penalty,
                     )
                     revision = None
-                    self.ray_actor = RayGeneratorActor(
-                        model=model.name_or_path,
-                        revision=revision,
-                        tokenizer=self.processing_class,
-                        seed=self.args.seed,
-
-
-                        ray_num_nodes=1,
-                        ray_tensor_parallelism=ray_tensor_parallelism,
-                        ray_data_parallelism=self.ray_data_parallelism,
-                        vllm_gpu_memory_utilization=(
-                            self.args.vllm_gpu_memory_utilization),
-                        vllm_dtype=self.args.vllm_dtype,
-
-
-
-                        enable_prefix_caching=self.args.enable_prefix_caching,
-                        enforce_eager=self.args.enforce_eager,
-                        sleep_level=self.args.vllm_sleep_level,
-
-
-
-
-                        max_tokens=self.args.vllm_max_model_len,
-                        max_completion_length=self.max_completion_length,
-
-                        temperature=self.args.temperature,
-                        top_k=-1 if args.top_k is None else args.top_k,
-                        top_p=args.top_p,
-                        repetition_penalty=self.args.repetition_penalty,
-
-
-                        collective_rpc_mode='nccl',
-                        reserved_gpus=reserved_gpus,
-                        sampling_params=self.sampling_params,
+                    # Ray functionality disabled in mono-GPU version
+                    raise RuntimeError(
+                        "Ray functionality is disabled in mono-GPU version. "
+                        "Please set use_ray=false in your configuration."
                     )
                     self.state_dict_copy = None
                 else:

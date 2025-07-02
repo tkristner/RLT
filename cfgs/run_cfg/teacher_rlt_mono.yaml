@@ -1,0 +1,87 @@
+defaults:
+  - override /model_cfg@_global_: qwen7bi
+  - override /data_cfg@_global_: teacher_bespoke_stratos
+  - override /trainer_cfg@_global_: grpo_mono  # Use mono-GPU trainer
+  - _self_
+
+# Use smaller model or adjust path for single GPU
+model_name_or_path: results/pre_rl_model
+
+bf16: true
+
+# Reduced training steps for mono-GPU
+max_steps: 50             # Reduced from 125
+num_train_epochs: 1.0
+
+save_strategy: "steps"
+
+save_steps: 10            # More frequent saves
+do_eval: true
+save_final_model: true
+
+eval_strategy: steps
+eval_steps: 5             # More frequent eval
+
+logging_steps: 1
+logging_strategy: steps
+
+# Mono-GPU optimized batch sizes
+train_batch_size: 32      # Reduced from 1024
+per_device_train_batch_size: 1
+generation_aggregation_steps: 8  # Reduced from 256
+
+# Reduced generations for single GPU
+num_generations: 8        # Reduced from 64
+temperature: 0.7
+unbias_log_probabilities: true
+
+learning_rate: 0.000001
+beta: 0.04
+
+sync_ref_model: false     # Simplified for mono-GPU
+ref_model_mixup_alpha: 0.9
+ref_model_sync_steps: 16  # Reduced from 32
+
+# Use smaller student model for mono-GPU
+student_model: "microsoft/DialoGPT-small"  # Smaller than Bespoke-Stratos-7B
+student_model_init_kwargs: null
+
+offload_untrained_models: true  # Enable CPU offloading
+
+# Reduced context lengths for memory efficiency
+max_prompt_length: 4096   # Reduced from 16384
+max_completion_length: 4096  # Reduced from 16384
+
+# Simplified reward coefficients
+answer_log_prob_coeff: [1, 0.01]
+kl_penalty_reward_coeff: [2, 0.02]  # Reduced from [3, 0.03]
+normalize_log_prob_fn: null
+clip_log_prob: 100000
+normalize_kl_fn: null
+clip_kl: 100000
+reduction_log_prob_fn: ["mean", "min"]
+reduction_kl_fn: ["mean", "max"]
+use_schulman_kl_estimation: false
+not_matched_penalty: -1.0
+unbias_teacher_log_probs: true
+unbias_student_log_probs_temp: 0.7
+
+save_completions_probability: 0.2  # Higher probability for debugging
+
+lr_scheduler_type: "constant"
+lr_scheduler_kwargs: ~
+
+wandb_project: rl4lm_teacher_mono
+
+log_ctx_name: mono_gr${num_generations}_${max_prompt_length}ctx_${max_completion_length}gen
+
+wandb_run_name: ${trainer_log_name}_mono
+
+output_dir: ${results_dir}/rlt_teacher_mono/${exp_name}
+
+# Disable vLLM server for mono-GPU
+vllm_port: 8765
+use_vllm: true
+use_vllm_server: false    # Use local vLLM instead
+vllm_host:
+num_vllm_clients: 1 
