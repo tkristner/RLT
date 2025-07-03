@@ -46,8 +46,8 @@ student_model_init_kwargs: null
 
 offload_untrained_models: true
 
-max_prompt_length: 8192
-max_completion_length: 8192
+max_prompt_length: 4096
+max_completion_length: 4096
 
 answer_log_prob_coeff: [1, 0.01]
 kl_penalty_reward_coeff: [3, 0.03]
@@ -83,6 +83,8 @@ num_vllm_clients:
 
 # vLLM Configuration
 vllm_dtype: auto
-vllm_gpu_memory_utilization: 0.4
-vllm_max_model_len: 8192
+vllm_gpu_memory_utilization: 0.85
+vllm_max_model_len: 4096
 vllm_quantization: fp8
+
+enable_prefix_caching: false

@@ -495,7 +495,7 @@ class GRPOTrainer(Trainer):
                             "device": vllm_device,
                             "gpu_memory_utilization": self.args.vllm_gpu_memory_utilization,
                             "dtype": 'auto',
-                            "enable_prefix_caching": True,
+                            "enable_prefix_caching": self.args.enable_prefix_caching,
                             "max_model_len": self.args.vllm_max_model_len,
                         }
                         
