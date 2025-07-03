@@ -49,12 +49,12 @@ else
         use_peft=true \
         +model_args.load_in_8bit=true \
         gradient_checkpointing=true \
-        bf16=false \
-        max_steps=200 \
-        max_seq_length=2048 \
+        bf16=true \
+        max_steps=100 \
+        max_seq_length=4096 \
         packing=false \
         add_text_completions=true \
-        wandb_project=rl4lm_sft_85gb \
+        wandb_project=rl4lm_sft_96gb \
         +trainer_args.optim=paged_adamw_8bit
 
     if [ ! -f "SFT_model_pre_RL/adapter_model.safetensors" ]; then

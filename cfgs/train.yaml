@@ -8,14 +8,14 @@ defaults:
 # saving:
 save_final_model: false
 save_strategy: "no"
-save_steps: 25
+save_steps: 100
 push_to_hub: false
 tags:
 call_post_training:
 
 # logging:
 logging_strategy: steps
-logging_steps: 5
+logging_steps: 1
 report_to: "wandb"
 wandb_project: rl4lm
 wandb_group_name: ${data_log_name}/${model_log_name}
