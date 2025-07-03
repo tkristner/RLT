@@ -5,7 +5,7 @@ defaults:
   - _self_
 
 bf16: true
-tf32: true
+tf32: false
 num_train_epochs: 3
 
 save_strategy: epoch
@@ -15,9 +15,8 @@ do_eval: false
 eval_strategy: steps
 eval_steps: 20
 
-train_batch_size: 32
-per_device_train_batch_size: 4
-gradient_accumulation_steps: 8
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
 
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
@@ -39,7 +38,7 @@ packing: true
 max_seq_length: 4096
 per_device_eval_batch_size: 2
 
-wandb_project: rl4lm_sft
+wandb_project: RLT_96GB_SFT
 wandb_group_name: teacher_sft
 wandb_run_name: teacher_${trainer_log_name}_${max_seq_length}ctx
-output_dir: SFT_model_pre_RL
+output_dir: results/step-1_SFT_${exp_name}

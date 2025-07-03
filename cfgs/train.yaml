@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model_cfg@_global_: qwen3bi
+  - model_cfg@_global_: qwen14b
   - data_cfg@_global_: teacher_bespoke_stratos
   - trainer_cfg@_global_: base_sft
   - run_cfg@_global_: default
@@ -17,7 +17,7 @@ call_post_training:
 logging_strategy: steps
 logging_steps: 1
 report_to: "wandb"
-wandb_project: rl4lm
+wandb_project: rl4lm 
 wandb_group_name: ${data_log_name}/${model_log_name}
 wandb_run_name: ${trainer_log_name}
 

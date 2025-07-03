@@ -11,6 +11,7 @@ import bitsandbytes as bnb
 from peft import LoraConfig
 from torch.utils.data import Dataset
 from trl import DataCollatorForCompletionOnlyLM, SFTTrainer, SFTConfig
+import wandb
 
 from custom_data.sft_data import load_formatted_sft_dataset
 from custom_data.utils import get_special_token_values, make_masked_sft_collator
@@ -22,9 +23,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def wandb_init(cfg, run_name: str, group_name: str, log_dir: str):
-    import wandb
-    from omegaconf import OmegaConf
-
     config_dict = OmegaConf.to_container(
         cfg,
         resolve=True,
@@ -142,19 +140,102 @@ def main(cfg: DictConfig):
     else:
         trainer_kwargs["peft_config"] = None
 
-    # Instantiate SFTConfig and SFTTrainer directly
-    sft_args_dict = OmegaConf.to_container(cfg.trainer_args, resolve=True)
-    sft_args_dict.pop('_target_', None) # Remove hydra's key
-    sft_args = SFTConfig(**sft_args_dict)
+    # Check if we're doing SFT or RL training
+    if cfg.do_sft:
+        # SFT Training - use SFTConfig and SFTTrainer
+        sft_args_dict = OmegaConf.to_container(cfg.trainer_args, resolve=True)
+        sft_args_dict.pop('_target_', None) # Remove hydra's key
+        
+        # Remove RL-specific arguments that don't belong in SFTConfig
+        rl_specific_keys = [
+            'max_prompt_length', 'num_generations', 'max_completion_length',
+            'shuffle_generation_inputs', 'ds3_gather_for_generation', 'temperature',
+            'top_p', 'top_k', 'min_p', 'repetition_penalty', 'generation_aggregation_steps',
+                    'use_vllm', 'vllm_device', 'vllm_gpu_memory_utilization', 'vllm_dtype',
+        'vllm_max_model_len', 'vllm_quantization', 'use_ray', 'ray_share_training_devices',
+            'ray_tensor_parallelism', 'ray_data_parallelism', 'ray_no_memory_duplication',
+            'enable_prefix_caching', 'enforce_eager', 'vllm_sleep_level',
+            'use_vllm_server', 'vllm_host', 'vllm_port', 'vllm_group_port',
+            'num_vllm_clients', 'beta', 'reward_weights', 'sync_ref_model',
+            'ref_model_mixup_alpha', 'ref_model_sync_steps', 'log_completions',
+            'save_completions_probability', 'artificial_epochs',
+            'backprop_accumulation_steps', 'backprop_accumulation_micro_batch_size',
+            'offload_untrained_models', 'unbias_log_probabilities',
+            'activate_debugging_logs', 'model_init_kwargs', 'remove_unused_columns'
+        ]
+        
+        for key in rl_specific_keys:
+            sft_args_dict.pop(key, None)
+        
+        sft_args = SFTConfig(**sft_args_dict)
 
-    trainer = SFTTrainer(
-        model=trainer_kwargs["model"],
-        args=sft_args,
-        train_dataset=trainer_kwargs["train_dataset"],
-        eval_dataset=trainer_kwargs["eval_dataset"],
-        data_collator=trainer_kwargs["data_collator"],
-        peft_config=trainer_kwargs["peft_config"],
-    )
+        trainer = SFTTrainer(
+            model=trainer_kwargs["model"],
+            args=sft_args,
+            train_dataset=trainer_kwargs["train_dataset"],
+            eval_dataset=trainer_kwargs["eval_dataset"],
+            data_collator=trainer_kwargs["data_collator"],
+            peft_config=trainer_kwargs["peft_config"],
+        )
+    else:
+        # RL Training - use the trainer from hydra configuration
+        # Create PEFT config manually to avoid OmegaConf Union issues
+        if cfg.use_peft:
+            peft_config = LoraConfig(
+                r=16,
+                lora_alpha=32,
+                lora_dropout=0.05,
+                bias="none",
+                task_type="CAUSAL_LM",
+                target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+            )
+        else:
+            peft_config = None
+            
+        # Remove arguments that GRPOTrainer doesn't accept
+        rl_trainer_kwargs = {
+            "model": trainer_kwargs["model"],
+            "train_dataset": trainer_kwargs["train_dataset"],
+            "eval_dataset": trainer_kwargs["eval_dataset"],
+        }
+        if peft_config is not None:
+            rl_trainer_kwargs["peft_config"] = peft_config
+            
+        # Create trainer config manually to avoid OmegaConf issues
+        trainer_config = OmegaConf.to_container(cfg.trainer, resolve=True)
+        trainer_config.pop('_target_', None)
+        
+        # Remove parameters that we're passing explicitly to avoid duplicates
+        trainer_config.pop('model', None)
+        trainer_config.pop('train_dataset', None) 
+        trainer_config.pop('eval_dataset', None)
+        trainer_config.pop('peft_config', None)
+        trainer_config.pop('reward_funcs', None)  # This will be passed separately
+        trainer_config.pop('args', None)  # Remove args to avoid conflict with grpo_args
+        
+        # Extract trainer args and create GRPOConfig
+        trainer_args_config = OmegaConf.to_container(cfg.trainer_args, resolve=True)
+        trainer_args_config.pop('_target_', None)
+        
+        # Import and create GRPOConfig
+        from trainers.grpo_config import GRPOConfig
+        grpo_args = GRPOConfig(**trainer_args_config)
+        
+        # Import and instantiate the trainer class directly
+        from trainers import TeacherGRPOTrainer
+        
+        # Extract reward_funcs from configuration
+        reward_funcs = hydra.utils.instantiate(cfg.reward_fns)
+        
+        trainer = TeacherGRPOTrainer(
+            model=trainer_kwargs["model"],
+            reward_funcs=reward_funcs,
+            args=grpo_args,
+            train_dataset=trainer_kwargs["train_dataset"],
+            eval_dataset=trainer_kwargs["eval_dataset"],
+            peft_config=peft_config,
+            **trainer_config  # Pass remaining config parameters
+        )
 
     print('Model initialized!!!')
 

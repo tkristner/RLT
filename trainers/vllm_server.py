@@ -173,6 +173,12 @@ class ScriptArguments:
             "help": "Vllm seed."
         },
     )
+    quantization: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Quantization method to use for vLLM. Supported values include 'fp8' for FP8 dynamic quantization."
+        },
+    )
 
 
 def main(script_args: ScriptArguments):
@@ -207,15 +213,16 @@ def main(script_args: ScriptArguments):
         )
 
     print(f"Initializing server with seed {script_args.seed}")
+    if script_args.quantization:
+        print(f"Using quantization: {script_args.quantization}")
+    
     llm = LLM(
         model=script_args.model,
         revision=script_args.revision,
         tensor_parallel_size=script_args.tensor_parallel_size,
         gpu_memory_utilization=script_args.gpu_memory_utilization,
         dtype=script_args.dtype,
-
-
-
+        quantization=script_args.quantization,
         enable_prefix_caching=script_args.enable_prefix_caching,
         max_model_len=script_args.max_model_len,
         seed=script_args.seed,

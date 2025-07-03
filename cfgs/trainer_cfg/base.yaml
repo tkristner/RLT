@@ -1,8 +1,7 @@
 max_steps: 450
 num_train_epochs: 1
-train_batch_size: 64
 per_device_train_batch_size: 2
-gradient_accumulation_steps: ???
+gradient_accumulation_steps: 8
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   _target_: builtins.dict
@@ -19,7 +18,7 @@ lr_scheduler_kwargs: ~
 
 warmup_ratio: 0.03
 bf16: true
-tf32: true
+tf32: false
 ddp_timeout: 18000
 
 trainer_log_name:

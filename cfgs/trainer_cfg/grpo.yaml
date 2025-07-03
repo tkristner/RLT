@@ -7,10 +7,9 @@ trainer_log_name: grpo
 artificial_epochs: 1
 
 max_steps: 200
-train_batch_size: 252
-per_device_train_batch_size: 3
+per_device_train_batch_size: 2
 
-num_generations: null
+num_generations: 16
 
 learning_rate: 0.000001
 beta: 0.04
@@ -18,14 +17,14 @@ beta: 0.04
 model_init_kwargs: null
 remove_unused_columns: false
 
-max_prompt_length: 2048
-max_completion_length: 16384
+max_prompt_length: 8192
+max_completion_length: 8192
 
 shuffle_generation_inputs: true
 
 ds3_gather_for_generation: true
 
-temperature: 1.0
+temperature: 0.65
 top_p: 1.0
 top_k: ~
 min_p: ~
@@ -33,11 +32,14 @@ repetition_penalty: 1.0
 
 generation_aggregation_steps: null
 
+use_peft: true
+load_in_4bit: true
+
 use_vllm: true
 vllm_device: auto
-vllm_gpu_memory_utilization: 0.9
-vllm_dtype: auto
-vllm_max_model_len: null
+vllm_gpu_memory_utilization: 0.4
+vllm_dtype: fp8
+vllm_max_model_len: 8192
 
 use_ray: false
 ray_share_training_devices: false

@@ -68,6 +68,7 @@ def load_formatted_sft_dataset(
         artificial_epochs=None,
         padding='max_length',
         truncation=True,
+        num_proc=None,
         **dataset_loading_kwargs,
 ):
 
@@ -77,6 +78,12 @@ def load_formatted_sft_dataset(
     train_dataset = dataset[train_split]
     if add_dataset_indices:
         train_dataset = add_indices(train_dataset)
+    
+    # Set default num_proc based on CPU count if not specified
+    if num_proc is None:
+        import os
+        num_proc = min(8, os.cpu_count() or 4)
+    
     if process_line_fn is not None:
         if isinstance(process_line_fn, (list, tuple)):
             processed_train_datasets = []
@@ -90,7 +97,7 @@ def load_formatted_sft_dataset(
             print('not loading from cache')
             train_dataset = train_dataset.map(
                 lambda x: process_line_fn(x, tokenizer=tokenizer),
-                num_proc=16,  # Use 4 parallel processes
+                num_proc=num_proc,  # Use configurable parallel processes
                 desc="Processing training data"
             )
     # ** FIX: Filter out the None values returned by the new process_line_fn **
@@ -98,7 +105,7 @@ def load_formatted_sft_dataset(
     if process_line_fn is not None and 'text' in train_dataset.column_names:
         train_dataset = train_dataset.filter(
             lambda x: x is not None and x.get('text') is not None,
-            num_proc=16,  # Parallelize filtering too
+            num_proc=num_proc,  # Parallelize filtering too
             desc="Filtering empty examples"
         )
     if val_split is None:
@@ -119,28 +126,44 @@ def load_formatted_sft_dataset(
             else:
                 val_dataset = val_dataset.map(
                     lambda x: process_line_fn(x, tokenizer=tokenizer),
-                    num_proc=16,  # Parallelize validation processing
+                    num_proc=num_proc,  # Parallelize validation processing
                     desc="Processing validation data"
                 )
         # Filter validation dataset too if needed
         if 'text' in val_dataset.column_names:
             val_dataset = val_dataset.filter(
                 lambda x: x is not None and x.get('text') is not None,
-                num_proc=16,  # Parallelize validation filtering
+                num_proc=num_proc,  # Parallelize validation filtering
                 desc="Filtering validation examples"
             )
     
     if truncation:
+        # Optimize tokenization with batching and caching
+        def tokenize_batch(examples):
+            return tokenizer(
+                examples['text'], 
+                truncation=True, 
+                padding=padding, 
+                max_length=min(8192, tokenizer.model_max_length),
+                return_tensors=None  # Keep as lists for efficiency
+            )
+        
         train_dataset = train_dataset.map(
-            lambda x: tokenizer(x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length),
-            num_proc=16,  # Parallelize tokenization
-            desc="Tokenizing training data"
+            tokenize_batch,
+            batched=True,
+            batch_size=1000,  # Process in larger batches
+            num_proc=num_proc,
+            desc="Tokenizing training data",
+            load_from_cache_file=True  # Enable caching
         )
         if val_dataset:
             val_dataset = val_dataset.map(
-                lambda x: tokenizer(x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length),
-                num_proc=16,  # Parallelize validation tokenization
-                desc="Tokenizing validation data"
+                tokenize_batch,
+                batched=True,
+                batch_size=1000,
+                num_proc=num_proc,
+                desc="Tokenizing validation data",
+                load_from_cache_file=True
             )
 
     if keep_columns is not None:

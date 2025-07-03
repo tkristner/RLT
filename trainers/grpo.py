@@ -22,7 +22,15 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import concurrent.futures
-import deepspeed
+
+# Make deepspeed import conditional for mono-GPU compatibility
+try:
+    import deepspeed
+    HAS_DEEPSPEED = True
+except ImportError:
+    HAS_DEEPSPEED = False
+    deepspeed = None
+
 from contextlib import nullcontext
 from torch.utils.data import Sampler
 from transformers import (
@@ -374,7 +382,7 @@ class GRPOTrainer(Trainer):
             pass
 
         num_processes = self.accelerator.num_processes
-        global_batch_size = args.per_device_train_batch_size * num_processes
+        global_batch_size = args.per_device_train_batch_size * num_processes * args.gradient_accumulation_steps
 
         if self.num_generations is None:
 
@@ -391,7 +399,7 @@ class GRPOTrainer(Trainer):
                 f"batch size, the valid values for the number of generations are: {possible_values}."
             )
         if self.args.eval_strategy != "no":
-            global_batch_size = args.per_device_eval_batch_size * num_processes
+            global_batch_size = args.per_device_eval_batch_size * num_processes * args.gradient_accumulation_steps
             possible_values = [n_gen for n_gen in range(
                 2, global_batch_size + 1) if (global_batch_size) % n_gen == 0]
             if self.num_generations not in possible_values:
@@ -481,17 +489,22 @@ class GRPOTrainer(Trainer):
                     self.state_dict_copy = None
                 else:
                     with world_size_patch, profiling_patch:
-                        self.llm = LLM(
-                            model=model.name_or_path,
-                            device=vllm_device,
-                            gpu_memory_utilization=self.args.vllm_gpu_memory_utilization,
-                            dtype=self.args.vllm_dtype,
-
-
-
-                            enable_prefix_caching=True,
-                            max_model_len=self.args.vllm_max_model_len,
-                        )
+                        # Préparer les arguments vLLM
+                        vllm_kwargs = {
+                            "model": model.name_or_path,
+                            "device": vllm_device,
+                            "gpu_memory_utilization": self.args.vllm_gpu_memory_utilization,
+                            "dtype": 'auto',
+                            "enable_prefix_caching": True,
+                            "max_model_len": self.args.vllm_max_model_len,
+                        }
+                        
+                        # Ajouter quantization seulement si spécifié
+                        if self.args.vllm_quantization is not None:
+                            vllm_kwargs["quantization"] = self.args.vllm_quantization
+                            print(f"🔧 vLLM: Utilisation de la quantification {self.args.vllm_quantization}")
+                        
+                        self.llm = LLM(**vllm_kwargs)
 
                     self.sampling_params = SamplingParams(
                         max_tokens=self.max_completion_length,
@@ -673,7 +686,7 @@ class GRPOTrainer(Trainer):
 
         deepspeed_plugin = self.accelerator.state.deepspeed_plugin
         zero_stage_3 = deepspeed_plugin is not None and deepspeed_plugin.zero_stage == 3
-        gather_if_zero3 = deepspeed.zero.GatheredParameters if zero_stage_3 else nullcontext
+        gather_if_zero3 = deepspeed.zero.GatheredParameters if zero_stage_3 and HAS_DEEPSPEED else nullcontext
         self.state_dict_copy = {}
 
         if is_peft_model(self.model):

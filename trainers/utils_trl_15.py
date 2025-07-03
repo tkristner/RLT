@@ -1,5 +1,3 @@
-
-
 import itertools
 from contextlib import contextmanager
 from copy import deepcopy
@@ -23,7 +21,15 @@ SUPPORTED_ARCHITECTURES = (
 )
 
 if is_deepspeed_available():
-    import deepspeed
+    try:
+        import deepspeed
+        HAS_DEEPSPEED = True
+    except ImportError:
+        HAS_DEEPSPEED = False
+        deepspeed = None
+else:
+    HAS_DEEPSPEED = False
+    deepspeed = None
 
 if TYPE_CHECKING:
     from accelerate import Accelerator
@@ -109,7 +115,10 @@ def setup_chat_format(
 
 
 def remove_hooks(model: "DeepSpeedEngine") -> None:
-
+    """Remove hooks for DeepSpeed - only works if DeepSpeed is available"""
+    if not HAS_DEEPSPEED:
+        return
+        
     if not hasattr(model, "optimizer"):
         return
     if model.optimizer is not None and hasattr(model.optimizer, "parameter_offload"):
@@ -141,7 +150,10 @@ def iter_params(module, recurse=False):
 
 
 def add_hooks(model: "DeepSpeedEngine") -> None:
-
+    """Add hooks for DeepSpeed - only works if DeepSpeed is available"""
+    if not HAS_DEEPSPEED:
+        return
+        
     if not hasattr(model, "optimizer"):
         return
     if model.optimizer is not None and hasattr(model.optimizer, "parameter_offload"):
@@ -153,7 +165,7 @@ def add_hooks(model: "DeepSpeedEngine") -> None:
             "The model optimizer is None, which is not yet supported.")
 
     if version.parse(deepspeed.__version__) >= version.parse("0.16.4"):
-
+        # DeepSpeed >= 0.16.4
         optimizer_offload._register_deepspeed_module(optimizer_offload.module)
     else:
         optimizer_offload._register_hooks_recursively(optimizer_offload.module)
@@ -166,12 +178,18 @@ def unwrap_model_for_generation(
     accelerator: "Accelerator",
     gather_deepspeed3_params: bool = True,
 ):
-
-    if accelerator.state.deepspeed_plugin is not None and accelerator.state.deepspeed_plugin.zero_stage == 3:
+    """Unwrap model for generation - with conditional DeepSpeed support"""
+    if not HAS_DEEPSPEED or accelerator.state.deepspeed_plugin is None:
+        # No DeepSpeed, just unwrap normally
+        unwrapped_model = accelerator.unwrap_model(model)
+        yield unwrapped_model
+        return
+        
+    if accelerator.state.deepspeed_plugin.zero_stage == 3:
         if not gather_deepspeed3_params:
             yield accelerator.unwrap_model(model)
         else:
-
+            # DeepSpeed ZeRO-3 specific logic
             with deepspeed.zero.GatheredParameters(model.parameters()):
                 remove_hooks(model)
                 yield accelerator.unwrap_model(model)
@@ -182,7 +200,10 @@ def unwrap_model_for_generation(
 
 
 def prepare_deepspeed(model, accelerator, offload_to_cpu=False):
-
+    """Prepare model for DeepSpeed - only works if DeepSpeed is available"""
+    if not HAS_DEEPSPEED:
+        raise RuntimeError("DeepSpeed is not available but prepare_deepspeed was called")
+        
     deepspeed_plugin = accelerator.state.deepspeed_plugin
     config_kwargs = deepcopy(deepspeed_plugin.deepspeed_config)
     stage = config_kwargs["zero_optimization"]["stage"]

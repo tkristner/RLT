@@ -139,6 +139,12 @@ class GRPOConfig(TrainingArguments):
             "context size, which might be much larger than the KV cache, leading to inefficiencies."
         },
     )
+    vllm_quantization: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Quantization method to use for vLLM. Supported values include 'fp8' for FP8 dynamic quantization."
+        },
+    )
 
     use_vllm_server: bool = field(
         default=False,
