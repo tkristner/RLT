@@ -98,8 +98,17 @@ def main(cfg: DictConfig):
 
     tokenizer = hydra.utils.instantiate(cfg.make_tokenizer_fn)
 
-    datasets = hydra.utils.instantiate(
-        cfg.make_dataset_fn, tokenizer=tokenizer)
+    if cfg.do_sft:
+        # For SFT, we need to add padding and truncation to the dataset creation
+        data_kwargs = {
+            'padding': cfg.get('padding', 'max_length'),
+            'truncation': cfg.get('truncation', True)
+        }
+        datasets = hydra.utils.instantiate(
+            cfg.make_dataset_fn, tokenizer=tokenizer, **data_kwargs)
+    else:
+        datasets = hydra.utils.instantiate(
+            cfg.make_dataset_fn, tokenizer=tokenizer)
 
     trainer = hydra.utils.instantiate(
         cfg.trainer,

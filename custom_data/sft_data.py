@@ -51,6 +51,8 @@ def load_formatted_sft_dataset(
         keep_columns=None,
         add_dataset_indices=False,
         artificial_epochs=None,
+        padding='max_length',
+        truncation=True,
         **dataset_loading_kwargs,
 ):
 
@@ -91,6 +93,16 @@ def load_formatted_sft_dataset(
             else:
                 val_dataset = val_dataset.map(
                     lambda x: process_line_fn(x,  tokenizer))
+    
+    if truncation:
+        train_dataset = train_dataset.map(lambda x: tokenizer(
+            x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length
+        ))
+        if val_dataset:
+            val_dataset = val_dataset.map(lambda x: tokenizer(
+                x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length
+            ))
+
     if keep_columns is not None:
         train_dataset = train_dataset.remove_columns(
             [col for col in train_dataset.column_names

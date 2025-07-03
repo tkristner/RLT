@@ -1,7 +1,7 @@
 defaults:
-  - override /model_cfg@_global_: qwen7bi
-  - override /data_cfg@_global_: teacher_bespoke_stratos
-  - override /trainer_cfg@_global_: grpo_mono_96gb  # Use 96GB trainer
+  - model_cfg@_global_: qwen7bi
+  - data_cfg@_global_: teacher_bespoke_stratos
+  - trainer_cfg@_global_: teacher_grpo
   - _self_
 
 # Can use larger models with 96GB
@@ -84,4 +84,5 @@ vllm_port: 8765
 use_vllm: true
 use_vllm_server: false
 vllm_host:
-num_vllm_clients: 1 
+num_vllm_clients: 1
+vllm_gpu_memory_utilization: 0.6  # 96GB can handle more 

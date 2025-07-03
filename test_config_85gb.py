@@ -14,7 +14,10 @@ def test_config_loading():
     
     try:
         # Test trainer config
-        with hydra.initialize_config_dir(config_dir=os.path.abspath("cfgs/trainer_cfg")):
+        with hydra.initialize_config_dir(
+            config_dir=os.path.abspath("cfgs/trainer_cfg"), 
+            version_base="1.1"
+        ):
             cfg_trainer = hydra.compose(config_name="grpo_mono_85gb")
             print("✅ Trainer config loaded successfully")
             print(f"   - Max generations: {cfg_trainer.num_generations}")
@@ -22,11 +25,16 @@ def test_config_loading():
             print(f"   - Context length: {cfg_trainer.max_prompt_length}")
         
         # Test run config  
-        with hydra.initialize_config_dir(config_dir=os.path.abspath("cfgs/run_cfg")):
+        with hydra.initialize_config_dir(
+            config_dir=os.path.abspath("cfgs/run_cfg"), 
+            version_base="1.1"
+        ):
             cfg_run = hydra.compose(config_name="teacher_rlt_mono_85gb")
             print("✅ Run config loaded successfully")
             print(f"   - Model: {cfg_run.model_name_or_path}")
             print(f"   - Student model: {cfg_run.student_model}")
+            print(f"   - Use vLLM: {cfg_run.use_vllm}")
+            print(f"   - vLLM server: {cfg_run.use_vllm_server}")
         
     except Exception as e:
         print(f"❌ Configuration loading failed: {e}")
