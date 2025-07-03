@@ -28,10 +28,7 @@ trainer_log_name: sft
 packing: true
 
 trainer_args:
-  _target_: hydra_utils.trl.SFTConfig
+  _target_: trl.SFTConfig
   max_seq_length: ${max_seq_length}
   packing: ${packing}
   do_eval: ${do_eval}
-
-trainer:
-  _target_: hydra_utils.trl.SFTTrainer

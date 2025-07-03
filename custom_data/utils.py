@@ -12,7 +12,7 @@ def get_special_token_values(tokenizer, model_name):
         instruction_template = "<|start_header_id|>user<|end_header_id|>"
         response_template = (
             "<|start_header_id|>assistant<|end_header_id|>\n\n")
-    elif model_type == 'qwen2':
+    elif model_type and model_type.startswith('qwen'):
         instruction_template = "<|im_start|>user"
         response_template = "<|im_start|>assistant\n"
     else:
@@ -35,6 +35,7 @@ def make_masked_sft_collator(
         instruction_template=instruction_template,
         response_template=response_template,
         tokenizer=tokenizer,
+        padding_free=True
     )
 
     def data_collator_fn(*args, **kwargs):

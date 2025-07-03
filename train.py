@@ -1,18 +1,25 @@
 import logging
 import os
-import random
-import re
+from functools import partial
+
 import hydra
-import torch
 from omegaconf import DictConfig, OmegaConf
 from datetime import datetime
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from transformers.trainer_utils import get_last_checkpoint
+import bitsandbytes as bnb
+from peft import LoraConfig
+from torch.utils.data import Dataset
+from trl import DataCollatorForCompletionOnlyLM, SFTTrainer, SFTConfig
+
+from custom_data.sft_data import load_formatted_sft_dataset
+from custom_data.utils import get_special_token_values, make_masked_sft_collator
+from custom_data.debug_utils import debug_print_examples
 
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 def wandb_init(cfg, run_name: str, group_name: str, log_dir: str):
     import wandb
@@ -34,12 +41,6 @@ def wandb_init(cfg, run_name: str, group_name: str, log_dir: str):
         config=config_dict,
     )
     return wandb
-
-
-def get_checkpoint(output_dir):
-    if os.path.isdir(output_dir):
-        return get_last_checkpoint(output_dir)
-    return None
 
 
 def get_total_devices():
@@ -96,43 +97,69 @@ def main(cfg: DictConfig):
             log_dir=cfg.output_dir,
         )
 
-    tokenizer = hydra.utils.instantiate(cfg.make_tokenizer_fn)
+    # Manually instantiate tokenizer and model to allow for resizing embeddings.
+    tokenizer = hydra.utils.instantiate(cfg.tokenizer)
+
+    # Convert model_args from DictConfig to a standard dict for kwargs
+    model_kwargs = OmegaConf.to_container(cfg.model_args, resolve=True)
+    model_kwargs.pop('_target_', None)  # Remove hydra's target key
+    model_kwargs.pop('use_peft', None)  # PEFT is handled by SFTTrainer
+    model_path = model_kwargs.pop('model_name_or_path')
+    revision = model_kwargs.pop('model_revision', None)
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        revision=revision,
+        **model_kwargs
+    )
+
+    # Resize model embeddings to match tokenizer size, preventing IndexError.
+    if len(tokenizer) > model.get_input_embeddings().weight.shape[0]:
+        print(f"Resizing model embeddings from {model.get_input_embeddings().weight.shape[0]} to {len(tokenizer)}")
+        model.resize_token_embeddings(len(tokenizer))
 
     if cfg.do_sft:
-        # For SFT, we need to add padding and truncation to the dataset creation
-        data_kwargs = {
-            'padding': cfg.get('padding', 'max_length'),
-            'truncation': cfg.get('truncation', True)
-        }
         datasets = hydra.utils.instantiate(
-            cfg.make_dataset_fn, tokenizer=tokenizer, **data_kwargs)
+            cfg.make_dataset_fn, tokenizer=tokenizer)
+        # Debug print SFT examples
+        debug_print_examples(datasets['train_dataset'])
     else:
         datasets = hydra.utils.instantiate(
             cfg.make_dataset_fn, tokenizer=tokenizer)
 
-    trainer = hydra.utils.instantiate(
-        cfg.trainer,
-        **datasets,
+    trainer_kwargs = {
+        "model": model,
+        "train_dataset": datasets.get('train_dataset'),
+        "eval_dataset": datasets.get('val_dataset'),
+        "data_collator": datasets.get('collator'),
+    }
+    if cfg.use_peft:
+        # Instantiate LoraConfig manually, removing Hydra's _target_ key
+        peft_kwargs = OmegaConf.to_container(cfg.peft_config, resolve=True)
+        peft_kwargs.pop('_target_', None) # Remove the _target_ key
+        peft_config = LoraConfig(**peft_kwargs)
+        trainer_kwargs["peft_config"] = peft_config
+    else:
+        trainer_kwargs["peft_config"] = None
+
+    # Instantiate SFTConfig and SFTTrainer directly
+    sft_args_dict = OmegaConf.to_container(cfg.trainer_args, resolve=True)
+    sft_args_dict.pop('_target_', None) # Remove hydra's key
+    sft_args = SFTConfig(**sft_args_dict)
+
+    trainer = SFTTrainer(
+        model=trainer_kwargs["model"],
+        args=sft_args,
+        train_dataset=trainer_kwargs["train_dataset"],
+        eval_dataset=trainer_kwargs["eval_dataset"],
+        data_collator=trainer_kwargs["data_collator"],
+        peft_config=trainer_kwargs["peft_config"],
     )
 
     print('Model initialized!!!')
 
-    last_checkpoint = get_checkpoint(cfg.output_dir)
-    if not last_checkpoint and cfg.resume_from is not None:
-        last_checkpoint = get_checkpoint(cfg.resume_from)
-    if last_checkpoint:
-        logger.info("Found checkpoint, resuming training run from "
-                    f"{last_checkpoint}.")
-    else:
-        logger.info("No existing checkpoint, initializing new model")
-
-    logger.info(f"Training  {datetime.now()}")
-    train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
-    logger.info(f"Training complete {datetime.now()}")
-
-    trainer.log_metrics("train", train_result.metrics)
-    trainer.save_metrics("train", train_result.metrics)
-    trainer.save_state()
+    last_checkpoint = get_last_checkpoint(cfg.output_dir)
+    trainer.train(resume_from_checkpoint=last_checkpoint)
 
     if cfg.save_final_model:
         logger.info(f"Saving final model at {cfg.output_dir}")

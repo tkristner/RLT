@@ -1,5 +1,5 @@
 from datasets import load_dataset, concatenate_datasets
-from .utils import make_masked_sft_collator
+from .utils import make_masked_sft_collator, get_special_token_values
 from .reasoning_datasets_info import (
     DATA_CONFIGS, wrap_string_between_tag, grab_text_between_tag, get_tags,
     ReasoningData)
@@ -11,11 +11,25 @@ def add_indices(ds):
     return ds
 
 
-def get_process_line_fn(dataset_id_or_path):
+def get_process_line_fn(dataset_id_or_path, model_name=None, tokenizer=None):
     data: ReasoningData = DATA_CONFIGS[dataset_id_or_path]
     system_prompt = data.system_prompt
+    # Get the correct response template for the model (Qwen2, Llama, etc)
+    response_template = None
+    if model_name is not None and tokenizer is not None:
+        _, _, response_template = get_special_token_values(tokenizer, model_name)
+    else:
+        # fallback: Qwen2 default
+        response_template = "<|im_start|>assistant\n"
 
-    def process_line_fn(line, tokenizer):
+    def process_line_fn(line):
+        user_message = line.get(data.user_message_field)
+        assistant_message = line.get(data.assistant_message_field)
+
+        # ** FIX: Filter out empty/None examples **
+        if not user_message or not assistant_message:
+            return None
+
         question_content, thought_process_and_solution = (
             data.extract_question_and_completion_from_line(line))
         messages = [
@@ -29,12 +43,13 @@ def get_process_line_fn(dataset_id_or_path):
             },
             {
                 "role": "assistant",
-                "content": thought_process_and_solution,
+                # Ajoute explicitement la balise attendue
+                "content": response_template + thought_process_and_solution,
             }
         ]
         line_text = tokenizer.apply_chat_template(
             messages, tokenize=False, continue_final_message=False)
-        return {"text": line_text}
+        return {"text": line_text, "original_prompt": question_content}
     return process_line_fn
 
 
@@ -67,14 +82,25 @@ def load_formatted_sft_dataset(
             processed_train_datasets = []
             for fn in process_line_fn:
                 processed = train_dataset.map(
-                    lambda x, fn=fn: fn(x, tokenizer))
+                    lambda x, func=fn: func(x, tokenizer=tokenizer))
                 processed_train_datasets.append(processed)
             train_dataset = concatenate_datasets(
                 processed_train_datasets)
         else:
             print('not loading from cache')
             train_dataset = train_dataset.map(
-                lambda x: process_line_fn(x,  tokenizer))
+                lambda x: process_line_fn(x, tokenizer=tokenizer),
+                num_proc=16,  # Use 4 parallel processes
+                desc="Processing training data"
+            )
+    # ** FIX: Filter out the None values returned by the new process_line_fn **
+    # Only filter if process_line_fn was used and 'text' column exists
+    if process_line_fn is not None and 'text' in train_dataset.column_names:
+        train_dataset = train_dataset.filter(
+            lambda x: x is not None and x.get('text') is not None,
+            num_proc=16,  # Parallelize filtering too
+            desc="Filtering empty examples"
+        )
     if val_split is None:
         val_dataset = None
     else:
@@ -86,22 +112,36 @@ def load_formatted_sft_dataset(
                 processed_val_datasets = []
                 for fn in process_line_fn:
                     processed = val_dataset.map(
-                        lambda x, fn=fn: fn(x, tokenizer))
+                        lambda x, func=fn: func(x, tokenizer=tokenizer))
                     processed_val_datasets.append(processed)
                 val_dataset = concatenate_datasets(
                     processed_val_datasets)
             else:
                 val_dataset = val_dataset.map(
-                    lambda x: process_line_fn(x,  tokenizer))
+                    lambda x: process_line_fn(x, tokenizer=tokenizer),
+                    num_proc=16,  # Parallelize validation processing
+                    desc="Processing validation data"
+                )
+        # Filter validation dataset too if needed
+        if 'text' in val_dataset.column_names:
+            val_dataset = val_dataset.filter(
+                lambda x: x is not None and x.get('text') is not None,
+                num_proc=16,  # Parallelize validation filtering
+                desc="Filtering validation examples"
+            )
     
     if truncation:
-        train_dataset = train_dataset.map(lambda x: tokenizer(
-            x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length
-        ))
+        train_dataset = train_dataset.map(
+            lambda x: tokenizer(x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length),
+            num_proc=16,  # Parallelize tokenization
+            desc="Tokenizing training data"
+        )
         if val_dataset:
-            val_dataset = val_dataset.map(lambda x: tokenizer(
-                x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length
-            ))
+            val_dataset = val_dataset.map(
+                lambda x: tokenizer(x['text'], truncation=True, padding=padding, max_length=tokenizer.model_max_length),
+                num_proc=16,  # Parallelize validation tokenization
+                desc="Tokenizing validation data"
+            )
 
     if keep_columns is not None:
         train_dataset = train_dataset.remove_columns(
@@ -126,4 +166,5 @@ def load_formatted_sft_dataset(
             model_name=model_name_or_path,
             custom_start_of_response=custom_start_of_response,
         )
+
     return out_data

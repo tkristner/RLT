@@ -23,70 +23,8 @@ echo "📊 Informations GPU :"
 nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits
 echo ""
 
-# Vérification VRAM (minimum 80GB)
-VRAM_TOTAL=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
-if [ "$VRAM_TOTAL" -lt 80000 ]; then
-    echo "❌ Erreur: VRAM insuffisante ($VRAM_TOTAL MB). Minimum requis: 80GB"
-    exit 1
-fi
-
-echo "✅ VRAM suffisante: ${VRAM_TOTAL} MB"
-
-# Choix de configuration
-echo ""
-echo "🎯 Choisissez votre niveau de performance :"
-echo "1) Conservative (~50GB VRAM) - RECOMMANDÉ"
-echo "2) Aggressive (~65GB VRAM)"
-read -p "Votre choix (1 ou 2): " config_choice
-
-# Paramètres de base pour 85GB
-# Note: Le '+' indique à Hydra d'ajouter la clé si elle n'existe pas.
-BASE_PARAMS=(
-    "+run_cfg=teacher_rlt"
-    "model_name_or_path=results/pre_rl_model"
-    "max_steps=200"
-    "+model_init_kwargs.load_in_8bit=true"
-    "+model_init_kwargs.device_map=auto"
-    "+model_args.load_in_8bit=true"
-    "use_vllm=true"
-    "use_vllm_server=false"
-    "offload_untrained_models=true"
-    "sync_ref_model=false"
-    "wandb_project=rl4lm_teacher_85gb_8bit"
-    "gradient_checkpointing=true"
-    "fp16=false"
-    "bf16=false"
-    "+trainer_args.optim=paged_adamw_8bit"
-)
-
-# Paramètres spécifiques à la configuration choisie
-if [[ "$config_choice" == "2" ]]; then
-    echo "⚡ Configuration Aggressive sélectionnée"
-    CONFIG_PARAMS=(
-        "train_batch_size=32"
-        "per_device_train_batch_size=2"
-        "generation_aggregation_steps=16"
-        "num_generations=24"
-        "max_prompt_length=8192"
-        "max_completion_length=8192"
-        "vllm_gpu_memory_utilization=0.55"
-        "output_dir=results/rlt_teacher_85gb_aggressive"
-    )
-else
-    echo "🛡️  Configuration Conservative sélectionnée (défaut)"
-    CONFIG_PARAMS=(
-        "train_batch_size=32"
-        "per_device_train_batch_size=2"
-        "gradient_accumulation_steps=16"
-        "max_steps=1000"
-        "max_prompt_length=2048"
-        "max_completion_length=2048"
-        "wandb_project=rl4lm_sft_85gb"
-        "output_dir=results/pre_rl_model"
-    )
-fi
-
-echo "✅ Configuration chargée."
+# La configuration est maintenant gérée via les fichiers YAML
+echo "✅ Configuration chargée depuis les fichiers cfgs/."
 
 # On s'assure que WANDB est en mode offline
 export WANDB_MODE=offline
@@ -108,20 +46,18 @@ else
     python3 train.py \
         +run_cfg=teacher_sft \
         +do_sft=true \
+        use_peft=true \
         +model_args.load_in_8bit=true \
         gradient_checkpointing=true \
         bf16=false \
-        per_device_train_batch_size=1 \
-        gradient_accumulation_steps=16 \
-        max_steps=1000 \
+        max_steps=200 \
         max_seq_length=2048 \
         packing=false \
         add_text_completions=true \
         wandb_project=rl4lm_sft_85gb \
-        output_dir="results/pre_rl_model" \
         +trainer_args.optim=paged_adamw_8bit
 
-    if [ ! -f "results/pre_rl_model/pytorch_model.bin" ]; then
+    if [ ! -f "SFT_model_pre_RL/adapter_model.safetensors" ]; then
         echo "❌ ERREUR: L'entraînement SFT a échoué. Le fichier modèle n'a pas été créé."
         exit 1
     fi

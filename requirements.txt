@@ -10,3 +10,5 @@ matplotlib
 wandb
 tensorboard
 fire
+flash-attn
+packaging

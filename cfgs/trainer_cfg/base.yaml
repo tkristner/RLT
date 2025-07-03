@@ -25,7 +25,7 @@ ddp_timeout: 18000
 trainer_log_name:
 
 trainer_args:
-  _target_:
+  _target_: transformers.TrainingArguments
   output_dir: ${output_dir}
   max_steps: ${max_steps}
   num_train_epochs: ${num_train_epochs}
