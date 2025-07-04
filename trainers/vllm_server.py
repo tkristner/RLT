@@ -225,6 +225,7 @@ def main(script_args: ScriptArguments):
         quantization=script_args.quantization,
         enable_prefix_caching=script_args.enable_prefix_caching,
         max_model_len=script_args.max_model_len,
+        enforce_eager=True,
         seed=script_args.seed,
         **worker_kwargs,
     )

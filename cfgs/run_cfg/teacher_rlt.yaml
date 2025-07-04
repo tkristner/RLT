@@ -6,7 +6,8 @@ defaults:
 
 model_name_or_path: results/step-1_SFT_fused
 use_peft: true
-load_in_4bit: true
+load_in_4bit: false
+load_in_8bit: true
 
 bf16: true
 
@@ -25,11 +26,11 @@ eval_steps: 5
 logging_steps: 1
 logging_strategy: steps
 
-train_batch_size: 64
+train_batch_size: 16
 per_device_train_batch_size: 2
 gradient_accumulation_steps: 8
-num_generations: 16
-generation_aggregation_steps: 8
+num_generations: 2
+generation_aggregation_steps: null
 
 temperature: 0.65
 unbias_log_probabilities: true
@@ -78,13 +79,18 @@ output_dir: results/step-2_RLT_${exp_name}
 vllm_port: 8765
 use_vllm: true
 use_vllm_server: false
-vllm_host:
-num_vllm_clients:
+vllm_device: auto
+vllm_gpu_memory_utilization: 0.6
+vllm_dtype: auto
+vllm_max_model_len: 4096
+vllm_quantization: bitsandbytes-int8
+vllm_host: null
+vllm_group_port: null
 
 # vLLM Configuration
-vllm_dtype: auto
-vllm_gpu_memory_utilization: 0.85
-vllm_max_model_len: 4096
-vllm_quantization: fp8
+# vllm_dtype: auto
+# vllm_gpu_memory_utilization: 0.85
+# vllm_max_model_len: 4096
+# vllm_quantization: fp8
 
 enable_prefix_caching: false

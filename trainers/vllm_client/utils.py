@@ -137,9 +137,20 @@ class VLLMClient:
             )
 
         world_size = tensor_parallel_size + 1
-        self.rank = (
-            tensor_parallel_size
-        )
+        self.rank = tensor_parallel_size
+
+        # Vérifier si suffisamment de GPU pour NCCL. Sur une machine mono-GPU, on
+        # ignore la communicator NCCL et on utilisera simplement les appels HTTP
+        # pour la mise à jour des poids.
+        if torch.cuda.device_count() < world_size:
+            logger.warning(
+                "Mono-GPU detected (devices=%d < world_size=%d). NCCL communicator "
+                "désactivé ; le broadcast des poids sera ignoré.",
+                torch.cuda.device_count(),
+                world_size,
+            )
+            self.pynccl_comm = None
+            return
 
         url = f"http://{self.host}:{self.server_port}/init_communicator/"
 
@@ -176,10 +187,11 @@ class VLLMClient:
                 f"Request failed: {response.status_code}, {response.text}"
             )
 
-        self.pynccl_comm.broadcast(
-            weights, src=self.rank, stream=torch.cuda.current_stream()
-        )
-        self.pynccl_comm.group.barrier()
+        if self.pynccl_comm is not None:
+            self.pynccl_comm.broadcast(
+                weights, src=self.rank, stream=torch.cuda.current_stream()
+            )
+            self.pynccl_comm.group.barrier()
 
     def update_model_params(self, model: nn.Module):
 

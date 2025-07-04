@@ -332,3 +332,11 @@ class GRPOConfig(TrainingArguments):
         metadata={"help": "Number of actual epochs we want to do training for. Specifying here to avoid"
                   " a bug in huggingface's GRPO training with multiple epochs."},
     )
+
+    vllm_weight_sync_steps: Optional[int] = field(
+        default=4,
+        metadata={
+            "help": "Synchronize updated model weights to the vLLM server every N training steps to reduce large "
+            "HTTP payloads and avoid connection resets. Set to 1 to sync every step (default 4)."
+        },
+    )

@@ -9,7 +9,7 @@ artificial_epochs: 1
 max_steps: 200
 per_device_train_batch_size: 2
 
-num_generations: 16
+num_generations: 2
 
 learning_rate: 0.000001
 beta: 0.04
@@ -33,12 +33,14 @@ repetition_penalty: 1.0
 generation_aggregation_steps: null
 
 use_peft: true
-load_in_4bit: true
+load_in_4bit: false
+load_in_8bit: true
 
-use_vllm: true
+# vLLM server configuration (mono-GPU setup)
+use_vllm: true           # Use in-process vLLM
 vllm_device: auto
-vllm_gpu_memory_utilization: 0.4
-vllm_dtype: fp8
+vllm_gpu_memory_utilization: 0.55   # 60% GPU for KV-cache
+vllm_dtype: auto
 vllm_max_model_len: 8192
 
 use_ray: false
@@ -49,12 +51,13 @@ ray_no_memory_duplication: false
 vllm_sleep_level: 0
 enable_prefix_caching: false
 enforce_eager: true
+vllm_weight_sync_steps: 1
 
-use_vllm_server: false
+use_vllm_server: false   # No external server
 vllm_host: null
 vllm_port: null
-vllm_group_port: 51216
-num_vllm_clients: 1
+vllm_group_port: null
+num_vllm_clients: null
 
 reward_weights: null
 
@@ -126,3 +129,5 @@ trainer_args:
 trainer:
   _target_: trainers.GRPOTrainer
   reward_funcs: ${reward_fns}
+
+vllm_quantization: bitsandbytes-int8

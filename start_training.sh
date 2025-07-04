@@ -240,14 +240,40 @@ if [ ! -f "$FUSED_MODEL_PATH/pytorch_model.bin" ] && [ ! -f "$FUSED_MODEL_PATH/m
     exit 1
 fi
 
-# Lancement de l'entraînement RL
+# Lancement du serveur vLLM *uniquement* si USE_EXTERNAL_VLLM=1
+if [ "${USE_EXTERNAL_VLLM:-0}" = "1" ]; then
+  VLLM_PORT=${VLLM_PORT:-8000}
+  VLLM_QUANT=${VLLM_QUANT:-bitsandbytes}
+
+  echo "🚀 Démarrage serveur vLLM externe (port=$VLLM_PORT, quant=$VLLM_QUANT)…"
+  ./scripts/launch_vllm_server.sh "$VLLM_PORT" "$VLLM_QUANT" > vllm.log 2>&1 &
+  VLLM_PID=$!
+
+  echo -n "⌛ Attente de la disponibilité du serveur vLLM… "
+  for i in {1..30}; do
+    if curl -s "http://127.0.0.1:$VLLM_PORT/health/" >/dev/null; then echo "OK"; break; fi
+    sleep 2
+  done
+
+  echo -n "⌛ Initialisation du moteur vLLM… "
+  for i in {1..60}; do
+    if curl -s "http://127.0.0.1:$VLLM_PORT/get_tensor_parallel_size/" >/dev/null; then echo "READY"; break; fi
+    sleep 2
+  done
+fi
+
+# 2) Lancer le monitoring GPU ------------------------------------------------
+echo "📊 Démarrage du monitoring GPU..."
+nvidia-smi --query-gpu=timestamp,memory.used,memory.total,utilization.gpu --format=csv -l 10 > gpu_monitoring.log &
+MONITOR_PID=$!
+
+# 3) Lancement de l'entraînement RL ----------------------------------------
 echo "🚀 Lancement de l'entraînement RLT..."
 echo "   Modèle source: $MODEL_PATH"
 echo "   (W&B est configuré en mode offline pour éviter les erreurs d'API Key)"
 echo "   Logs GPU en temps réel: tail -f gpu_monitoring.log"
 echo ""
 
-# Lancer l'entraînement en arrière-plan et capturer son PID
 python3 train.py \
     +run_cfg=teacher_rlt \
     +do_sft=false \
@@ -256,18 +282,14 @@ python3 train.py \
     wandb_project=rl4lm_teacher_96gb &
 TRAIN_PID=$!
 
-# Monitoring en arrière-plan
-echo "📊 Démarrage du monitoring GPU..."
-nvidia-smi --query-gpu=timestamp,memory.used,memory.total,utilization.gpu --format=csv -l 10 > gpu_monitoring.log &
-MONITOR_PID=$!
-
 # Fonction de nettoyage
 cleanup() {
-    echo ""
-    echo "🛑 Arrêt du training..."
-    kill $TRAIN_PID 2>/dev/null || true
-    kill $MONITOR_PID 2>/dev/null || true
-    echo "📊 Log GPU sauvegardé : gpu_monitoring.log"
+    echo "";
+    echo "🛑 Arrêt du training...";
+    kill $TRAIN_PID 2>/dev/null || true;
+    kill $MONITOR_PID 2>/dev/null || true;
+    [ -n "${VLLM_PID:-}" ] && kill $VLLM_PID 2>/dev/null || true;
+    echo "📊 Log GPU sauvegardé : gpu_monitoring.log";
 }
 trap cleanup EXIT INT TERM
 

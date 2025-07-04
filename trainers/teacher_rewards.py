@@ -600,10 +600,20 @@ class TeacherKLBasedReward(TeacherReward):
     def compute_batch_log_probs(
             self, text, student_model=True, cached_log_probs=None, temperature=1.0):
 
+        # Robustly obtain the model reference
         if student_model:
-            model = self.student_model
+            model = getattr(self, "student_model", None)
+            if model is None:
+                # Fallback: use teacher_model if student_model missing
+                model = getattr(self, "teacher_model", None)
         else:
-            model = self.teacher_model
+            model = getattr(self, "teacher_model", None)
+
+        if model is None:
+            raise RuntimeError(
+                "[TeacherReward] Neither student_model nor teacher_model is initialised. "
+                "Ensure that reward functions are linked via link_with_trainer before training."
+            )
 
         encoding = self.tokenizer(
             text,
@@ -639,10 +649,20 @@ class TeacherKLBasedReward(TeacherReward):
     def compute_batch_log_probs_with_logits(
             self, text, student_model=True, cached_logits=None, temperature=1.0):
 
+        # Robustly obtain the model reference
         if student_model:
-            model = self.student_model
+            model = getattr(self, "student_model", None)
+            if model is None:
+                # Fallback: use teacher_model if student_model missing
+                model = getattr(self, "teacher_model", None)
         else:
-            model = self.teacher_model
+            model = getattr(self, "teacher_model", None)
+
+        if model is None:
+            raise RuntimeError(
+                "[TeacherReward] Neither student_model nor teacher_model is initialised. "
+                "Ensure that reward functions are linked via link_with_trainer before training."
+            )
 
         encoding = self.tokenizer(
             text,
@@ -681,10 +701,20 @@ class TeacherKLBasedReward(TeacherReward):
         self, text, student_model=True, cached_log_probs=None,
         max_sequence_tokens_to_process=4096,
     ):
+        # Robustly obtain the model reference
         if student_model:
-            model = self.student_model
+            model = getattr(self, "student_model", None)
+            if model is None:
+                # Fallback: use teacher_model if student_model missing
+                model = getattr(self, "teacher_model", None)
         else:
-            model = self.teacher_model
+            model = getattr(self, "teacher_model", None)
+
+        if model is None:
+            raise RuntimeError(
+                "[TeacherReward] Neither student_model nor teacher_model is initialised. "
+                "Ensure that reward functions are linked via link_with_trainer before training."
+            )
 
         encoding = self.tokenizer(
             text,
@@ -790,7 +820,14 @@ class TeacherKLBasedReward(TeacherReward):
             temperature=self.unbias_student_log_probs_temp,
         )
 
-        student_device = self.student_model.device
+        # Robustly obtain device for student model; fall back to teacher if needed
+        _student_model_ref = getattr(self, "student_model", None)
+        if _student_model_ref is None:
+            _student_model_ref = getattr(self, "teacher_model", None)
+        if _student_model_ref is None:
+            raise RuntimeError("[TeacherReward] student_model and teacher_model are None; reward cannot be computed.")
+
+        student_device = _student_model_ref.device
 
         self._print_debugging_logs('computing student solution masks')
         student_solution_masks = self.get_mask_for_spans(
@@ -846,7 +883,11 @@ class TeacherKLBasedReward(TeacherReward):
 
         if self.use_kl_penalty_reward_coeff or return_raw_tensors:
 
-            teacher_device = self.teacher_model.device
+            _teacher_model_ref = getattr(self, "teacher_model", None)
+            if _teacher_model_ref is None:
+                _teacher_model_ref = _student_model_ref  # fallback
+
+            teacher_device = _teacher_model_ref.device
 
             self._print_debugging_logs('computing teacher log probs')
 

@@ -71,3 +71,17 @@ class TeacherGRPOTrainer(GRPOTrainer, TeacherTrainer):
             output_dir=self.args.output_dir,
             logging_prob=logging_prob,
         )
+
+        # Ensure that all reward functions are properly linked (some wrappers may create new instances
+        # after the initial call). This prevents situations where `student_model` is None inside
+        # the reward object, which leads to AttributeError during training.
+        for rw in self.reward_funcs:
+            if isinstance(rw, TeacherReward):
+                # If student_model attribute is missing, link again
+                if getattr(rw, "student_model", None) is None:
+                    rw.link_with_trainer(
+                        trainer=self,
+                        student_model=self.student_model,
+                        teacher_model=teacher_model,
+                        tokenizer=self.processing_class,
+                    )

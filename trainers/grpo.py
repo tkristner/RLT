@@ -488,6 +488,29 @@ class GRPOTrainer(Trainer):
                     )
                     self.state_dict_copy = None
                 else:
+                    # -----------------------------------------------------
+                    # Mono-GPU optimisation:
+                    #   Déplacer provisoirement le modèle d'entraînement sur
+                    #   le CPU afin de libérer la VRAM pour l'initialisation
+                    #   du moteur vLLM (poids + KV-cache). Une fois le moteur
+                    #   lancé, on replace le modèle sur son device d'origine.
+                    #   Cela évite les erreurs « No available memory for the
+                    #   cache blocks » lorsqu'on partage un seul GPU.
+                    # -----------------------------------------------------
+                    orig_device = None
+                    try:
+                        # `model` est la variable fermée depuis l'__init__
+                        # (scope extérieur). On vérifie qu'il possède bien
+                        # des paramètres et qu'il réside sur CUDA.
+                        if model is not None:
+                            first_param = next(model.parameters())
+                            orig_device = first_param.device
+                            if orig_device.type == "cuda":
+                                model.to("cpu")
+                                torch.cuda.empty_cache()
+                    except StopIteration:
+                        pass  # modèle sans paramètres ?
+
                     with world_size_patch, profiling_patch:
                         # Préparer les arguments vLLM
                         vllm_kwargs = {
@@ -505,6 +528,11 @@ class GRPOTrainer(Trainer):
                             print(f"🔧 vLLM: Utilisation de la quantification {self.args.vllm_quantization}")
                         
                         self.llm = LLM(**vllm_kwargs)
+
+                    # Remettre le modèle sur GPU si nécessaire
+                    if orig_device is not None and orig_device.type == "cuda":
+                        model.to(orig_device)
+                        torch.cuda.empty_cache()
 
                     self.sampling_params = SamplingParams(
                         max_tokens=self.max_completion_length,
@@ -588,6 +616,9 @@ class GRPOTrainer(Trainer):
 
         model.warnings_issued["estimate_tokens"] = True
 
+        # Frequency to push updated weights to vLLM server
+        self.vllm_weight_sync_steps = getattr(args, "vllm_weight_sync_steps", 4) or 1
+
     def _print_debugging_logs(self, to_print: str):
         if self.args.activate_debugging_logs:
             print(f'Process {self.accelerator.process_index}: {to_print}')
@@ -597,23 +628,33 @@ class GRPOTrainer(Trainer):
         if self._signature_columns is None:
             self._signature_columns = ["prompt"]
 
-    def _get_train_sampler(self) -> Sampler:
+    def _get_train_sampler(self, dataset=None) -> Sampler:
+
+        # Fallback to internal train_dataset if not provided
+        dataset = dataset or self.train_dataset
 
         effective_batch_size = (
-
             self.optim_pd_train_batch_size
             * self.accelerator.num_processes
             * self.generation_aggregation_steps
         )
 
-        different_samples_per_batch = (
-            effective_batch_size // self.num_generations)
+        # Ensure we have at least one sample in the batch to avoid division-by-zero
+        if effective_batch_size < self.num_generations:
+            # Fallback to one sample per generation when batch is smaller than num_generations
+            different_samples_per_batch = 1
+            if self.accelerator.is_main_process and self.args.activate_debugging_logs:
+                print(
+                    f"[GRPOTrainer] Warning: effective_batch_size ({effective_batch_size}) < num_generations ({self.num_generations}). "
+                    "Setting different_samples_per_batch to 1 to avoid empty batches."
+                )
+        else:
+            different_samples_per_batch = effective_batch_size // self.num_generations
 
         return RepeatRandomSampler(
-            data_source=self.train_dataset,
+            data_source=dataset,
             mini_repeat_count=self.num_generations,
             batch_size=different_samples_per_batch,
-
             repeat_count=self.generation_aggregation_steps,
             artificial_epochs=self.artificial_epochs,
             seed=self.args.seed,
@@ -676,6 +717,11 @@ class GRPOTrainer(Trainer):
                     clone_weight=True,
                 )
         elif self.use_vllm_server:
+            # Avoid sending huge tensors that can break the HTTP connection.
+            # Typically only LoRA (small) parameters need to be updated during RL fine-tuning.
+            if param_data.numel() > 1_000_000:
+                # Skip large parameters (e.g., base model weights) – they are static on the vLLM side.
+                return
             for client in self.vllm_clients:
                 client.update_named_param(param_name, param_data)
         else:
@@ -888,7 +934,7 @@ class GRPOTrainer(Trainer):
                     res_to_log["step"] = self.state.global_step
                     if wandb.run is not None:
                         wandb.log(res_to_log)
-            if self.state.global_step != self._last_loaded_step:
+            if (self.state.global_step - self._last_loaded_step) >= self.vllm_weight_sync_steps:
                 if self.accelerator.is_main_process:
                     start = time.time()
                 self._pre_model_moving()
